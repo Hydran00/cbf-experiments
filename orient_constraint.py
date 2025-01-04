@@ -1,9 +1,9 @@
 import numpy as np
 import cvxpy as cp
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.sparse.linalg import expm
-from mpl_toolkits.mplot3d import Axes3D
+
+from plot_cone_constraints import plot_cone_constraints
 
 
 # Skew-symmetric matrix function
@@ -15,6 +15,10 @@ def skew(vector):
             [-vector[1], vector[0], 0],
         ]
     )
+
+
+def angle_between_vectors(v1, v2):
+    return np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
 
 
 # Define the CBF
@@ -35,38 +39,44 @@ def cbf_constraint(u, R, e_i, theta, alpha):
 
 
 # Simulation parameters
-R = np.eye(3)  # Initial orientation matrix
-R_init = R.copy()
-
-e_i = np.array([1.0, 0, 0])  # Considered column of the orientation matrix
-omega = np.array([3.0, 0.0, 0.0])  # Initial angular velocity
-theta = np.array([0.6, 0, 0])  # Initial angle
-theta_i = theta[0]  # Considered angle for the barrier function
+x = np.eye(3)  # Initial orientation matrix
+x_nocbf = x.copy()
+x_init = x.copy()
+e = np.eye(3)  # reference frame wrt world
+omega = np.array([0.3, 0.25, -0.10])  # Angular velocity
+theta = np.array([0.4, 0.6, 0.6])  # Angle limits
 k = 10.0  # Gain for the barrier function
 dt = 0.01  # Time step
-T = 1.0  # Simulation duration
+T = 4.0  # Simulation duration
 
 # Store results for plotting
 time = np.arange(0, T, dt)
-x_trajectory = [0.0]
-x_nocbf_trajectory = [0.0]
-x_des = R.copy()
-h_values = [h(R, e_i, theta_i)]
-u_values = []
+# pre allocate the matrices
+log_x_dynamics = np.zeros((3, 3, len(time)))
+log_x_trajectory = np.zeros((3, 3, len(time)))
+log_x_nocbf_trajectory = np.zeros((3, len(time)))
+log_h = np.zeros((3, len(time)))
+log_u = np.zeros((3, len(time)))
 
-# Store the rotation matrix dynamics for 3D plotting
-R_dynamics = []
-
+constraints = ["", "", ""]
 # Simulation loop
-for t in tqdm(time[1:]):
+for step, t in enumerate(tqdm(time)):
+
     u_nominal = omega
     u = cp.Variable(3)
 
+    for i in range(3):
+        # log_x_trajectory[i, step] = angle_between_vectors(e[:, i], x @ e[:, i])
+        # log_x_nocbf_trajectory[i, step] = angle_between_vectors(e[:, i], x @ e[:, i])
+        pass
+
+        log_h[i, step] = h(x, e[i, :], theta[i])
+        # Define the CBF constraint
+        constraints[i] = cbf_constraint(u, x, e[i, :], theta[i], k) >= 0
+    log_x_trajectory[:, :, step] = x.copy()
+
     # Define the objective function (quadratic)
     obj = cp.Minimize(objective(u, u_nominal))
-
-    # Define the CBF constraint
-    constraints = [cbf_constraint(u, R, e_i, theta_i, k) >= 0]
 
     # Define the problem and solve it
     prob = cp.Problem(obj, constraints)
@@ -79,116 +89,20 @@ for t in tqdm(time[1:]):
     # Get the optimized control input
     u_opt = u.value
 
-    # Update state using integration
-    R_nocbf = R @ expm(dt * skew(omega))
+    # integrate the dynamics
+    x = x @ expm(dt * skew(u_opt))
+    x_nocbf = x_nocbf @ expm(dt * skew(omega))
 
     # Ensure the resulting matrix is still a valid rotation matrix (orthonormal)
-    U, _, Vt = np.linalg.svd(R_nocbf)
-    R_nocbf = U @ Vt
-
-    R = R @ expm(dt * skew(u_opt))
-
-    # Ensure the resulting matrix is still a valid rotation matrix (orthonormal)
-    U, _, Vt = np.linalg.svd(R)
-    R = U @ Vt
+    U, _, Vt = np.linalg.svd(x_nocbf)
+    x_nocbf = U @ Vt
+    U, _, Vt = np.linalg.svd(x)
+    x = U @ Vt
 
     # Compute angle from the initial orientation matrix to the current orientation matrix
-    init_vec = R_init[:, 0]
-    cur_vec = R[:, 0]
-    angle = np.arccos(
-        np.dot(init_vec, cur_vec) / (np.linalg.norm(init_vec) * np.linalg.norm(cur_vec))
-    )
-    angle_nocbf = angle
-
-    # Record the results
-    x_trajectory.append(angle.copy())
-    x_nocbf_trajectory.append(angle_nocbf.copy())
-    h_values.append(h(R, e_i, theta_i))
-    u_values.append(u_opt)
+    log_u[:, step] = u_opt
 
     # Store the rotation matrix for 3D visualization
-    R_dynamics.append(R)
+    log_x_dynamics[:, :, step] = x
 
-# Convert results to arrays for plotting
-x_trajectory = np.array(x_trajectory)
-x_nocbf_trajectory = np.array(x_nocbf_trajectory)
-h_values = np.array(h_values)
-R_dynamics = np.array(R_dynamics)
-
-# Plot the results
-fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-
-# 1. Plot the state trajectory with and without CBF over time
-axs[0, 0].plot(time, x_trajectory, "-o", label="State trajectory with CBF", color="b")
-axs[0, 0].plot(
-    time,
-    x_nocbf_trajectory,
-    "--",
-    label="State trajectory without CBF",
-    color="orange",
-)
-axs[0, 0].axhline(theta_i, color="r", linestyle="--", label="Boundary (h(x) = 0)")
-axs[0, 0].set_xlabel("Time (s)", fontsize=20)
-axs[0, 0].set_ylabel("Roll (x[0])", fontsize=20)
-axs[0, 0].set_title("State Trajectory with and without CBF (gamma = {k})", fontsize=20)
-axs[0, 0].legend(fontsize=20)
-axs[0, 0].axis("equal")
-
-# 2. Plot the barrier function h(x)
-axs[0, 1].plot(time, h_values, label="h(x) with CBF", color="b")
-axs[0, 1].axhline(0, color="r", linestyle="--", label="Boundary (h(x) = 0)")
-axs[0, 1].set_xlabel("Time (s)", fontsize=20)
-axs[0, 1].set_ylabel("Barrier Function h(x)", fontsize=20)
-axs[0, 1].set_title(
-    "Evolution of the Barrier Function h(x) over Time with CBF Constraint", fontsize=20
-)
-axs[0, 1].legend(fontsize=20)
-
-# 3. Plot the control input values
-u_values = np.array(u_values)
-axs[1, 0].plot(time[1:], u_values[:, 0], label="u[0] (x-component)", color="lime")
-axs[1, 0].plot(time[1:], u_values[:, 1], label="u[1] (y-component)", color="violet")
-axs[1, 0].set_xlabel("Time (s)", fontsize=20)
-axs[1, 0].set_ylabel("Control Input Magnitude", fontsize=20)
-axs[1, 0].set_title(
-    "Control Inputs over Time: x- and y-Components with CBF Constraint", fontsize=20
-)
-axs[1, 0].legend(fontsize=20)
-
-# 4. Plot 3D visualization of the rotation matrix dynamics
-ax = fig.add_subplot(2, 2, 4, projection="3d")
-time3D = time[:-1]  # Time array excluding the first time step
-R_dynamics = np.array(R_dynamics)
-print(R_dynamics.shape)
-
-ax.plot(
-    time3D,
-    R_dynamics[:, 0, 0],
-    R_dynamics[:, 0, 1],
-    label="R[0,0] vs R[0,1]",
-    color="b",
-)
-ax.plot(
-    time3D,
-    R_dynamics[:, 1, 0],
-    R_dynamics[:, 1, 1],
-    label="R[1,0] vs R[1,1]",
-    color="orange",
-)
-ax.plot(
-    time3D,
-    R_dynamics[:, 2, 0],
-    R_dynamics[:, 2, 1],
-    label="R[2,0] vs R[2,1]",
-    color="green",
-)
-
-ax.set_xlabel("Time (s)", fontsize=20)
-ax.set_ylabel("Matrix Component", fontsize=20)
-ax.set_zlabel("Rotation Matrix Values", fontsize=20)
-ax.set_title("3D Visualization of Rotation Matrix Dynamics", fontsize=20)
-ax.legend(fontsize=15)
-
-# Show the plots with tight layout
-plt.tight_layout()
-plt.show()
+plot_cone_constraints(time, log_x_trajectory, x_init, log_h, log_u, theta)

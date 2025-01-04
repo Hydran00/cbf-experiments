@@ -91,21 +91,18 @@ class OrientationConstraintCBF(CBFConfig):
 def main():
     # Create the CBF object
     config = OrientationConstraintCBF()
-    plane_cbf = CBF.from_config(config)
+    orient_cbf = CBF.from_config(config)
     print("Starting CBF simulation")
 
     k = 1.0  # Gain for the barrier function
-    x = np.eye(3).flatten()  # Initial state (identity rotation matrix)
+    x = np.eye(3)  # Initial state (identity rotation matrix)
     dt = 0.1  # Time step
     T = 10.0  # Simulation duration
-
-    # Desired trajectory (constant for simplicity)
-    x_des = np.eye(3).flatten()
 
     # Store results for plotting
     time = np.arange(0, T, dt)
     x_trajectory = [x.copy()]
-    h_values = [plane_cbf.h_1(x)]
+    h_values = [orient_cbf.h_1(x)]
     u_values = []
 
     # Simulation loop
@@ -114,17 +111,17 @@ def main():
         u_nominal = np.zeros(3)
         config.set_u(u_nominal)
         # Retrieve control input using the safety filter
-        u_opt = plane_cbf.safety_filter(x, u_nominal)
+        u_opt = orient_cbf.safety_filter(x, u_nominal)
 
         # Update state using Euler integration for rotation matrix dynamics
         omega = u_opt  # Control input directly as angular velocity
         R = np.array([[x[0], x[1], x[2]], [x[3], x[4], x[5]], [x[6], x[7], x[8]]])
         R_dot = R @ config.skew(omega)  # Rotation matrix dynamics: R_dot = R [omega]_x
-        x = x + R_dot.flatten() * dt  # Update state (flattened rotation matrix)
+        x = x + (R_dot * dt  # Update state (flattened rotation matrix)
 
         # Record the results
         x_trajectory.append(x.copy())
-        h_values.append(plane_cbf.h_1(x))
+        h_values.append(orient_cbf.h_1(x))
         u_values.append(u_opt)
 
     # Convert results to arrays for plotting
