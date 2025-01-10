@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import cm
 
 
-def plot_cone_constraints(time, x, x_init, h, u, theta):
+def plot_cone_constraints(time, x, h, u, e, theta):
     # Create a figure with multiple subplots (2 rows, 2 columns)
     fig = plt.figure(figsize=(16, 8))
 
@@ -50,25 +50,38 @@ def plot_cone_constraints(time, x, x_init, h, u, theta):
         cone_height = 1.0  # Height of the cone (unit length for visualization)
         u, v = np.mgrid[0 : 2 * np.pi : 100j, 0:cone_height:50j]
 
-        # Create half-cone surface (opening angle based on theta_limit)
+        # Create half-cone surface (opening angle based on theta)
         radius = v * np.tan(theta)
         x = radius * np.cos(u)
         y = radius * np.sin(u)
         z = v
 
-        # Rotate and translate the half-cone to point along the given direction
-        if direction == "x":
-            ax.plot_surface(
-                z, x, y, color=color, alpha=alpha
-            )  # Positive x-direction only
-        elif direction == "y":
-            ax.plot_surface(
-                x, z, y, color=color, alpha=alpha
-            )  # Positive y-direction only
-        elif direction == "z":
-            ax.plot_surface(
-                x, y, z, color=color, alpha=alpha
-            )  # Positive z-direction only
+        # Normalize the direction vector
+        direction = direction / np.linalg.norm(direction)
+
+        # Find a rotation matrix that aligns the z-axis with the given direction
+        z_axis = np.array([0, 0, 1])  # Default axis of the cone
+        v = np.cross(z_axis, direction)  # Find the axis of rotation
+        s = np.linalg.norm(v)
+        c = np.dot(z_axis, direction)
+
+        # If the direction is the same as z-axis, no rotation is needed
+        if s == 0:
+            if c < 0:
+                R = -np.eye(3)
+            else:
+                R = np.eye(3)
+        else:
+            vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+            R = np.eye(3) + vx + (vx @ vx) * ((1 - c) / s**2)
+
+        # Apply the rotation matrix to the cone points
+        cone_points = np.vstack((x.ravel(), y.ravel(), z.ravel()))
+        rotated_points = R @ cone_points
+        x_rot, y_rot, z_rot = rotated_points.reshape(3, *x.shape)
+
+        # Plot the rotated cone
+        ax.plot_surface(x_rot, y_rot, z_rot, color=color, alpha=alpha)
 
     # Plot the 3D dynamics (subplot 3)
     ax3 = fig.add_subplot(2, 2, 3, projection="3d")
@@ -78,9 +91,9 @@ def plot_cone_constraints(time, x, x_init, h, u, theta):
         0,
         0,
         0,
-        x_init[0, 0],
-        x_init[1, 0],
-        x_init[2, 0],
+        x[0, 0, 0],
+        x[1, 0, 0],
+        x[2, 0, 0],
         color="r",
         linewidth=2.5,
         label="Initial frame (x-axis)",
@@ -89,9 +102,9 @@ def plot_cone_constraints(time, x, x_init, h, u, theta):
         0,
         0,
         0,
-        x_init[0, 1],
-        x_init[1, 1],
-        x_init[2, 1],
+        x[0, 1, 0],
+        x[1, 1, 0],
+        x[2, 1, 0],
         color="g",
         linewidth=2.5,
         label="Initial frame (y-axis)",
@@ -100,9 +113,9 @@ def plot_cone_constraints(time, x, x_init, h, u, theta):
         0,
         0,
         0,
-        x_init[0, 2],
-        x_init[1, 2],
-        x_init[2, 2],
+        x[0, 2, 0],
+        x[1, 2, 0],
+        x[2, 2, 0],
         color="b",
         linewidth=2.5,
         label="Initial frame (z-axis)",
@@ -163,9 +176,9 @@ def plot_cone_constraints(time, x, x_init, h, u, theta):
         ax3.scatter(z_proj[0], z_proj[1], z_proj[2], color="b", s=30)
 
     # Add half-cones for each axis
-    plot_half_cone(ax3, theta[0], "x", "red", alpha=0.3)
-    plot_half_cone(ax3, theta[1], "y", "green", alpha=0.3)
-    plot_half_cone(ax3, theta[2], "z", "blue", alpha=0.3)
+    plot_half_cone(ax3, theta[0], e[:, 0], "red", alpha=0.3)
+    plot_half_cone(ax3, theta[1], e[:, 1], "green", alpha=0.3)
+    plot_half_cone(ax3, theta[2], e[:, 2], "blue", alpha=0.3)
 
     # Set axis limits and labels
     ax3.set_xlim([-1, 1])

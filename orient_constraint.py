@@ -2,7 +2,7 @@ import numpy as np
 import cvxpy as cp
 from tqdm import tqdm
 from scipy.sparse.linalg import expm
-
+from scipy.spatial.transform import Rotation as R
 from plot_cone_constraints import plot_cone_constraints
 
 
@@ -39,15 +39,24 @@ def cbf_constraint(u, R, e_i, theta, alpha):
 
 
 # Simulation parameters
-x = np.eye(3)  # Initial orientation matrix
+omega = np.array([-0.3, 0.0, -0.0])  # Angular velocity
+# compute thetas as 20 deg on Y axis
+x = np.array(  # state
+    [
+        [0.9396926, 0.0000000, 0.3420202],
+        [0.0000000, 1.0000000, 0.0000000],
+        [-0.3420202, 0.0000000, 0.9396926],
+    ]
+)
 x_nocbf = x.copy()
 x_init = x.copy()
-e = np.eye(3)  # reference frame wrt world
-omega = np.array([0.3, 0.25, -0.10])  # Angular velocity
-theta = np.array([0.4, 0.6, 0.6])  # Angle limits
+
+e = np.eye(3)
+theta = np.array([np.pi / 6, np.pi / 6, np.pi / 6])
+# print(theta)
 k = 10.0  # Gain for the barrier function
 dt = 0.01  # Time step
-T = 4.0  # Simulation duration
+T = 5.2  # Simulation duration
 
 # Store results for plotting
 time = np.arange(0, T, dt)
@@ -68,8 +77,6 @@ for step, t in enumerate(tqdm(time)):
     for i in range(3):
         # log_x_trajectory[i, step] = angle_between_vectors(e[:, i], x @ e[:, i])
         # log_x_nocbf_trajectory[i, step] = angle_between_vectors(e[:, i], x @ e[:, i])
-        pass
-
         log_h[i, step] = h(x, e[i, :], theta[i])
         # Define the CBF constraint
         constraints[i] = cbf_constraint(u, x, e[i, :], theta[i], k) >= 0
@@ -105,4 +112,4 @@ for step, t in enumerate(tqdm(time)):
     # Store the rotation matrix for 3D visualization
     log_x_dynamics[:, :, step] = x
 
-plot_cone_constraints(time, log_x_trajectory, x_init, log_h, log_u, theta)
+plot_cone_constraints(time, log_x_trajectory, log_h, log_u, e, theta)

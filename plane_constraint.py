@@ -24,10 +24,10 @@ def cbf_constraint(u, x, n, p, k):
 # Simulation parameters
 n = np.array([1.0, 0.0])  # Normal vector of the plane
 p = np.array([2.0, 1.0])  # A point on the plane
-k = 1.0  # Gain for the barrier function
+k = 10.0  # Gain for the barrier function
 x = np.array([2.5, 0.5])  # Initial state
-dt = 0.1  # Time step
-T = 100.0  # Simulation duration
+dt = 0.01  # Time step
+T = 20.0  # Simulation duration
 w = 1.0  # Frequency of the nominal control input
 
 # Store results for plotting
@@ -45,7 +45,8 @@ u_values = []
 for t in tqdm(time[1:]):
     # Nominal control input (sinusoidal trajectory)
     x_des = np.array([x_des[0] + np.cos(w * t), x_des[1] + 0.1])
-    u_nominal = (x_des - x) / dt
+    u_nominal = x_des - x
+    u_nominal_nocbf = x_des - x_nocbf
 
     # Create the CVXPY variable for control input
     u = cp.Variable(2)  # Control input as a 2D variable
@@ -68,7 +69,7 @@ for t in tqdm(time[1:]):
     u_opt = u.value
 
     # Update state using Euler integration
-    x_nocbf = x + u_nominal * dt
+    x_nocbf = x_nocbf + u_nominal_nocbf * dt
     x = x + u_opt * dt
 
     # Record the results
