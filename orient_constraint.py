@@ -21,42 +21,54 @@ def angle_between_vectors(v1, v2):
     return np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
 
 
-# Define the CBF
-def h(R, e_i, theta_i):
-    return e_i.T @ R @ e_i - np.cos(theta_i)
-
-
 # Define the objective function for control
 def objective(u, u_nominal):
     return cp.norm(u - u_nominal) ** 2
 
 
+# Define the CBF
+def h(R, e_w, e_i, theta_i):
+    return e_w.T @ R.T @ e_i - np.cos(theta_i)
+
+
 # Define the CBF constraint
-def cbf_constraint(u, R, e_i, theta, alpha):
-    e_i_skew = skew(e_i)
-    h_val = h(R, e_i, theta)
-    return -e_i.T @ R @ e_i_skew @ u + alpha * h_val
+def cbf_constraint(u, R, e_w, e_i, theta, alpha):
+    # return -e_i.T @ R @ skew(e_i) @ u + alpha * h(R, e_i, theta)
+    e_w_skew = skew(e_w)
+    h_val = h(R, e_w, e_i, theta)
+    return -e_i.T @ R @ e_w_skew @ u + alpha * h_val
+
+
+# x_test = np.array(
+#     [
+#         [0.9396926, -0.0000000, 0.3420202],
+#         [0.1169778, 0.9396926, -0.3213938],
+#         [-0.3213938, 0.3420202, 0.8830222],
+#     ]
+# )
+# e_test = np.array(x_test[:, 0])
+# print(e_test.shape)
+# e_i_test_skew = skew(e_test)
+# print(e_i_test_skew.shape)
+
+# theta_test = 0.4
+# gamma_test = 10.0
+# print(h(x_test, e_test, theta_test))
+# print(-e_test.T @ x_test @ e_i_test_skew)
 
 
 # Simulation parameters
-omega = np.array([-0.3, 0.0, -0.0])  # Angular velocity
-# compute thetas as 20 deg on Y axis
-x = np.array(  # state
-    [
-        [0.9396926, 0.0000000, 0.3420202],
-        [0.0000000, 1.0000000, 0.0000000],
-        [-0.3420202, 0.0000000, 0.9396926],
-    ]
-)
+omega = np.array([-0.3, 0.36, -0.5])  # Angular velocity
+x = R.from_euler("xyz", [-0.2, -0.3, 0.8]).as_matrix()
+x = np.eye(3)
 x_nocbf = x.copy()
-x_init = x.copy()
+e_w = np.eye(3)  # world frame
+e_ref = x  # reference frame to which we define the angle limits
+theta = np.array([0.3, 0.3, 0.6])  # angle limits
 
-e = np.eye(3)
-theta = np.array([np.pi / 6, np.pi / 6, np.pi / 6])
-# print(theta)
-k = 10.0  # Gain for the barrier function
-dt = 0.01  # Time step
-T = 5.2  # Simulation duration
+k = 1.0  # Gain for the barrier function
+dt = 0.001  # Time step
+T = 12.2  # Simulation duration
 
 # Store results for plotting
 time = np.arange(0, T, dt)
@@ -66,7 +78,12 @@ log_x_trajectory = np.zeros((3, 3, len(time)))
 log_x_nocbf_trajectory = np.zeros((3, len(time)))
 log_h = np.zeros((3, len(time)))
 log_u = np.zeros((3, len(time)))
+x[1, 1] = -1.0
+x[2, 2] = -1.0
+x = x @ expm(dt * skew([0.0, 0.5, 0.0]))
+print("int :\n", x)
 
+print(e_w[:, 0].T @ x.T @ e_ref[:, 0])
 constraints = ["", "", ""]
 # Simulation loop
 for step, t in enumerate(tqdm(time)):
@@ -77,9 +94,9 @@ for step, t in enumerate(tqdm(time)):
     for i in range(3):
         # log_x_trajectory[i, step] = angle_between_vectors(e[:, i], x @ e[:, i])
         # log_x_nocbf_trajectory[i, step] = angle_between_vectors(e[:, i], x @ e[:, i])
-        log_h[i, step] = h(x, e[i, :], theta[i])
+        log_h[i, step] = h(x, e_w[:, i], e_ref[:, i], theta[i])
         # Define the CBF constraint
-        constraints[i] = cbf_constraint(u, x, e[i, :], theta[i], k) >= 0
+        constraints[i] = cbf_constraint(u, x, e_w[:, i], e_ref[:, i], theta[i], k) >= 0
     log_x_trajectory[:, :, step] = x.copy()
 
     # Define the objective function (quadratic)
@@ -111,5 +128,8 @@ for step, t in enumerate(tqdm(time)):
 
     # Store the rotation matrix for 3D visualization
     log_x_dynamics[:, :, step] = x
-
-plot_cone_constraints(time, log_x_trajectory, log_h, log_u, e, theta)
+print("Final angle between vectors:")
+print("x: ", angle_between_vectors(e_ref[0], x[:, 0]))
+print("y: ", angle_between_vectors(e_ref[1], x[:, 1]))
+print("z: ", angle_between_vectors(e_ref[2], x[:, 2]))
+plot_cone_constraints(time, log_x_trajectory, log_h, log_u, e_ref, theta)
